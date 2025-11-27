@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/Radhe%20Radhe/Downloads/smart-attendance-web-app/app/login/loading.tsx"],"sourcesContent":["export default function Loading() {\n  return null\n}\n"],"names":[],"mappings":";;;;AAAe,SAAS;IACtB,OAAO;AACT"}}]
+}
