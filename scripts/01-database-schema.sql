@@ -1,172 +1,102 @@
+-- Enable necessary extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "vector";
+
 -- Users table
-CREATE TABLE IF NOT EXISTS users (
-  id SERIAL PRIMARY KEY,
-  uuid UUID UNIQUE DEFAULT gen_random_uuid(),
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email VARCHAR(255) UNIQUE NOT NULL,
   name VARCHAR(255) NOT NULL,
-  password_hash VARCHAR(255),
-  role VARCHAR(50) NOT NULL, -- 'student', 'teacher', 'admin'
-  profile_image_url TEXT,
-  face_data JSONB, -- Store face recognition embeddings
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Colleges table
-CREATE TABLE IF NOT EXISTS colleges (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  email VARCHAR(255),
+  role VARCHAR(50) NOT NULL CHECK (role IN ('admin', 'teacher', 'student')),
+  class_id UUID,
+  profile_photo_url VARCHAR(500),
+  face_registered BOOLEAN DEFAULT FALSE,
   phone VARCHAR(20),
-  address TEXT,
-  city VARCHAR(100),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Departments table
-CREATE TABLE IF NOT EXISTS departments (
-  id SERIAL PRIMARY KEY,
-  college_id INT REFERENCES colleges(id),
-  name VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Classes table
+CREATE TABLE classes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  class_name VARCHAR(255) NOT NULL,
+  teacher_id UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+  subject VARCHAR(255),
+  schedule TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Courses table
-CREATE TABLE IF NOT EXISTS courses (
-  id SERIAL PRIMARY KEY,
-  department_id INT REFERENCES departments(id),
-  code VARCHAR(50) NOT NULL UNIQUE,
-  name VARCHAR(255) NOT NULL,
-  description TEXT,
-  credits INT,
-  semester INT,
-  teacher_id INT REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Enrollments table
-CREATE TABLE IF NOT EXISTS enrollments (
-  id SERIAL PRIMARY KEY,
-  student_id INT REFERENCES users(id),
-  course_id INT REFERENCES courses(id),
-  enrollment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(student_id, course_id)
-);
+-- Add foreign key for class_id
+ALTER TABLE users ADD CONSTRAINT fk_class_id FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL;
 
 -- Attendance table
-CREATE TABLE IF NOT EXISTS attendance (
-  id SERIAL PRIMARY KEY,
-  student_id INT REFERENCES users(id),
-  course_id INT REFERENCES courses(id),
-  attendance_date DATE,
-  status VARCHAR(20), -- 'present', 'absent', 'late'
-  method VARCHAR(50), -- 'face_recognition', 'qr_code', 'manual'
-  qr_code_id VARCHAR(255),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(student_id, course_id, attendance_date)
+CREATE TABLE attendance (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  attendance_date DATE NOT NULL,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('present', 'absent', 'late')),
+  marked_by VARCHAR(50) CHECK (marked_by IN ('teacher', 'admin', 'auto')),
+  marked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(user_id, class_id, attendance_date)
 );
 
--- QR Codes table
-CREATE TABLE IF NOT EXISTS qr_codes (
-  id SERIAL PRIMARY KEY,
-  code VARCHAR(255) UNIQUE NOT NULL,
-  course_id INT REFERENCES courses(id),
-  created_by INT REFERENCES users(id), -- teacher
-  class_session_date DATE,
-  class_session_time TIME,
-  expires_at TIMESTAMP,
-  status VARCHAR(20) DEFAULT 'active', -- 'active', 'expired', 'used'
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Face embeddings table for face recognition
+CREATE TABLE face_embeddings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  embedding VECTOR(128),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Syllabus table
-CREATE TABLE IF NOT EXISTS syllabus (
-  id SERIAL PRIMARY KEY,
-  course_id INT REFERENCES courses(id),
-  title VARCHAR(255),
-  content TEXT,
-  week_number INT,
-  order_number INT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Assignments table
-CREATE TABLE IF NOT EXISTS assignments (
-  id SERIAL PRIMARY KEY,
-  course_id INT REFERENCES courses(id),
-  title VARCHAR(255) NOT NULL,
-  description TEXT,
-  due_date TIMESTAMP,
-  total_marks INT DEFAULT 100,
-  created_by INT REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Assignment submissions table
-CREATE TABLE IF NOT EXISTS assignment_submissions (
-  id SERIAL PRIMARY KEY,
-  assignment_id INT REFERENCES assignments(id),
-  student_id INT REFERENCES users(id),
-  file_url TEXT,
-  submitted_at TIMESTAMP,
-  marks_obtained INT,
-  feedback TEXT,
-  UNIQUE(assignment_id, student_id)
-);
-
--- Fees table
-CREATE TABLE IF NOT EXISTS fees (
-  id SERIAL PRIMARY KEY,
-  student_id INT REFERENCES users(id),
-  amount DECIMAL(10, 2),
-  due_date DATE,
-  paid_date DATE,
-  status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'paid', 'overdue'
-  description TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Exams table
-CREATE TABLE IF NOT EXISTS exams (
-  id SERIAL PRIMARY KEY,
-  course_id INT REFERENCES courses(id),
-  title VARCHAR(255) NOT NULL,
-  exam_date DATE,
-  exam_time TIME,
-  duration_minutes INT,
-  total_marks INT DEFAULT 100,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Exam results table
-CREATE TABLE IF NOT EXISTS exam_results (
-  id SERIAL PRIMARY KEY,
-  exam_id INT REFERENCES exams(id),
-  student_id INT REFERENCES users(id),
-  marks_obtained INT,
-  percentage DECIMAL(5, 2),
-  grade VARCHAR(2),
-  UNIQUE(exam_id, student_id)
+-- Correction requests table
+CREATE TABLE correction_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  attendance_id UUID NOT NULL REFERENCES attendance(id) ON DELETE CASCADE,
+  requested_date DATE NOT NULL,
+  old_status VARCHAR(20) NOT NULL,
+  new_status_requested VARCHAR(20) NOT NULL,
+  reason TEXT,
+  proof_file_url VARCHAR(500),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  rejected_reason TEXT,
+  reviewed_by UUID REFERENCES users(id),
+  reviewed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Notifications table
-CREATE TABLE IF NOT EXISTS notifications (
-  id SERIAL PRIMARY KEY,
-  user_id INT REFERENCES users(id),
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50),
   title VARCHAR(255),
   message TEXT,
-  type VARCHAR(50), -- 'qr_code', 'assignment', 'exam', 'fee', 'attendance'
-  related_id INT, -- ID of related entity
-  is_read BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create indexes
-CREATE INDEX idx_users_role ON users(role);
+-- System settings table
+CREATE TABLE system_settings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  key VARCHAR(255) UNIQUE NOT NULL,
+  value TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create indexes for better performance
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_enrollments_student ON enrollments(student_id);
-CREATE INDEX idx_enrollments_course ON enrollments(course_id);
-CREATE INDEX idx_attendance_student ON attendance(student_id);
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_classes_teacher_id ON classes(teacher_id);
+CREATE INDEX idx_attendance_user_id ON attendance(user_id);
+CREATE INDEX idx_attendance_class_id ON attendance(class_id);
 CREATE INDEX idx_attendance_date ON attendance(attendance_date);
-CREATE INDEX idx_courses_teacher ON courses(teacher_id);
-CREATE INDEX idx_notifications_user ON notifications(user_id);
+CREATE INDEX idx_face_embeddings_user_id ON face_embeddings(user_id);
+CREATE INDEX idx_corrections_user_id ON correction_requests(user_id);
+CREATE INDEX idx_corrections_status ON correction_requests(status);
+CREATE INDEX idx_notifications_user_id ON notifications(user_id);
